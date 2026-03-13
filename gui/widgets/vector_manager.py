@@ -1,5 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel, 
-                             QFileDialog, QMessageBox, QListWidget, QLineEdit, QHBoxLayout)
+                             QFileDialog, QMessageBox, QListWidget, QLineEdit, QHBoxLayout,
+                             QListWidgetItem, QDialog, QTextBrowser)
+from PyQt6.QtCore import Qt
 import requests
 import os
 
@@ -72,6 +74,7 @@ class VectorManager(QWidget):
         # --- Section 5: Results Display ---
         # List widget to show search results or logs
         self.results_list = QListWidget()
+        self.results_list.itemClicked.connect(self.show_law_details)
         layout.addWidget(self.results_list)
         
         self.setLayout(layout)
@@ -144,7 +147,8 @@ class VectorManager(QWidget):
 
         try:
             # Call Backend API
-            response = requests.post(f"{API_URL}/search", json={"query": query, "n_results": 5})
+            # Increased n_results to 50 as per user request to show "all relevant" concise provisions
+            response = requests.post(f"{API_URL}/search", json={"query": query, "n_results": 50})
             
             if response.status_code == 200:
                 results = response.json()
@@ -162,10 +166,60 @@ class VectorManager(QWidget):
                 for i, doc in enumerate(docs):
                     meta = metas[i] if i < len(metas) else {}
                     law_name = meta.get('law_name', 'Unknown')
+                    
                     # Display snippet: [Law Name] Content...
-                    item_text = f"[{law_name}] {doc[:150]}..."
-                    self.results_list.addItem(item_text)
+                    # Truncate for display in list
+                    display_text = f"[{law_name}] {doc[:100]}..."
+                    
+                    # Create List Item
+                    item = QListWidgetItem(display_text)
+                    
+                    # Store full data in the item for detail view
+                    item_data = {
+                        "law_name": law_name,
+                        "content": doc,
+                        "metadata": meta
+                    }
+                    item.setData(Qt.ItemDataRole.UserRole, item_data)
+                    
+                    self.results_list.addItem(item)
             else:
                 QMessageBox.warning(self, "Error", f"Search failed: {response.text}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Connection error: {e}")
+
+    def show_law_details(self, item):
+        """
+        Display full details of the selected law provision in a dialog.
+        """
+        data = item.data(Qt.ItemDataRole.UserRole)
+        
+        if not data:
+            return # Should not happen for valid items
+            
+        law_name = data.get("law_name", "Unknown Law")
+        content = data.get("content", "No content available.")
+        
+        # Create a dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Details: {law_name}")
+        dialog.resize(600, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Title Label
+        title_label = QLabel(f"<h2>{law_name}</h2>")
+        layout.addWidget(title_label)
+        
+        # Content Browser (Scrollable)
+        text_browser = QTextBrowser()
+        text_browser.setPlainText(content)
+        layout.addWidget(text_browser)
+        
+        # Close Button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
