@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+chromadb
+python-docx
+pdfplumber
+passlib[bcrypt]
+python-multipart
+pyqt6
+requests
+aiohttp
+langchain
+langchain-openai
+openai
