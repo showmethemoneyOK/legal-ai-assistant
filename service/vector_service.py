@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from legal_ai.core.config import CHROMA_PERSIST_DIRECTORY, PUBLIC_LAW_DIR
 from legal_ai.db.models import PublicLawFile, VectorLog
-from legal_ai.service.law_service import extract_text_from_file, chunk_text, calculate_file_hash
+from legal_ai.service.law_service import extract_text_from_file, chunk_text, chunk_legal_text, calculate_file_hash
 
 # Global variable to store the ChromaDB client instance
 _chroma_client = None
@@ -185,7 +185,8 @@ def process_file(db: Session, collection, file_path: str):
         law_name = os.path.splitext(file_name)[0]
         
         # Split text into manageable chunks
-        chunks = chunk_text(text, chunk_size=500, overlap=50)
+        # Use specialized legal text chunking for better context
+        chunks = chunk_legal_text(text, chunk_size=800, overlap=100)
         
         ids = []
         documents = []
