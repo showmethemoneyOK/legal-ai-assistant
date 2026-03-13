@@ -5,6 +5,7 @@ chromadb
 python-docx
 pdfplumber
 passlib[bcrypt]
+bcrypt==4.0.1
 python-multipart
 pyqt6
 requests
@@ -12,3 +13,5 @@ aiohttp
 langchain
 langchain-openai
 openai
+sentence-transformers
+numpy<2.0.0

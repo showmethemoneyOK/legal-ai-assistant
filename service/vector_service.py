@@ -1,6 +1,7 @@
 import os
 import chromadb
 from chromadb.config import Settings
+from chromadb.utils import embedding_functions
 from sqlalchemy.orm import Session
 from datetime import datetime
 from legal_ai.core.config import CHROMA_PERSIST_DIRECTORY, PUBLIC_LAW_DIR
@@ -9,6 +10,22 @@ from legal_ai.service.law_service import extract_text_from_file, chunk_text, cal
 
 # Global variable to store the ChromaDB client instance
 _chroma_client = None
+_embedding_function = None
+
+def get_embedding_function():
+    """
+    Get the embedding function. Uses SentenceTransformer by default for better compatibility.
+    """
+    global _embedding_function
+    if _embedding_function is None:
+        try:
+            # Use 'all-MiniLM-L6-v2' which is small and effective
+            _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+        except Exception as e:
+            print(f"Failed to load SentenceTransformer: {e}")
+            # Fallback or raise error? For now let it crash if we can't load embeddings
+            raise e
+    return _embedding_function
 
 def get_chroma_client():
     """
@@ -30,8 +47,9 @@ def get_public_collection():
         chromadb.Collection: The 'public_law' collection object.
     """
     client = get_chroma_client()
+    ef = get_embedding_function()
     # get_or_create_collection is idempotent
-    return client.get_or_create_collection(name="public_law")
+    return client.get_or_create_collection(name="public_law", embedding_function=ef)
 
 def rebuild_public_vector_db(db: Session, operator: str = "system"):
     """
@@ -48,6 +66,7 @@ def rebuild_public_vector_db(db: Session, operator: str = "system"):
         dict: A dictionary containing the status and the number of files processed.
     """
     client = get_chroma_client()
+    ef = get_embedding_function()
     
     # 1. Delete existing collection if it exists and create a new one to start fresh
     try:
@@ -55,7 +74,7 @@ def rebuild_public_vector_db(db: Session, operator: str = "system"):
     except ValueError:
         pass # Collection might not exist, which is fine
     
-    collection = client.create_collection("public_law")
+    collection = client.create_collection("public_law", embedding_function=ef)
     
     # Clear database records for public files to sync with vector DB
     db.query(PublicLawFile).delete()
@@ -193,8 +212,11 @@ def process_file(db: Session, collection, file_path: str):
             print(f"Successfully indexed: {file_path}")
             
     except Exception as e:
-        print(f"Error processing file {file_path}: {e}")
-        # Ideally log this error to DB as well for monitoring
+        error_msg = f"Error processing file {file_path}: {e}"
+        print(error_msg)
+        # Re-raise the exception so the API layer can catch it and report to the user
+        raise Exception(error_msg)
+
 
 def search_public_law(query_text: str, n_results: int = 5):
     """

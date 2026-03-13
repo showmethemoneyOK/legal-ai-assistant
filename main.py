@@ -3,7 +3,7 @@ import os
 import threading
 import uvicorn
 import time
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog
 
 # Ensure project root is in sys.path to resolve module imports correctly
 # This is crucial when running the script directly from different directories
@@ -41,7 +41,7 @@ def main():
     
     # 3. Show Login Window
     login = LoginWindow()
-    if login.exec() == login.Accepted:
+    if login.exec() == QDialog.DialogCode.Accepted:
         # If login is successful, launch the Main Window
         # We pass the token and user_id to maintain session state
         window = MainWindow(token=login.token, user_id=login.user_id)
