@@ -1,7 +1,9 @@
 import os
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils import embedding_functions
+# from chromadb.utils import embedding_functions  # DEPRECATED: Caused dependency hell
+# from fastembed import TextEmbedding  # Moved to lazy import to avoid DLL load errors on startup
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from sqlalchemy.orm import Session
 from datetime import datetime
 from legal_ai.core.config import CHROMA_PERSIST_DIRECTORY, PUBLIC_LAW_DIR
@@ -10,22 +12,37 @@ from legal_ai.service.law_service import extract_text_from_file, chunk_text, cal
 
 # Global variable to store the ChromaDB client instance
 _chroma_client = None
-_embedding_function = None
+_embedding_model = None
+
+class FastEmbedFunction(EmbeddingFunction):
+    """
+    Custom EmbeddingFunction for ChromaDB using FastEmbed.
+    This bypasses PyTorch dependencies completely.
+    """
+    def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5"):
+        self.model_name = model_name
+        # Lazy import here to prevent "DLL load failed" from crashing the whole app on startup
+        from fastembed import TextEmbedding
+        self._model = TextEmbedding(model_name=self.model_name)
+
+    def __call__(self, input: Documents) -> Embeddings:
+        # FastEmbed returns a generator, convert to list
+        return list(self._model.embed(input))
 
 def get_embedding_function():
     """
-    Get the embedding function. Uses SentenceTransformer by default for better compatibility.
+    Get the singleton embedding function instance.
     """
-    global _embedding_function
-    if _embedding_function is None:
+    global _embedding_model
+    if _embedding_model is None:
         try:
-            # Use 'all-MiniLM-L6-v2' which is small and effective
-            _embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+            print("Loading FastEmbed model (BAAI/bge-small-zh-v1.5)...")
+            _embedding_model = FastEmbedFunction(model_name="BAAI/bge-small-zh-v1.5")
+            print("FastEmbed model loaded successfully.")
         except Exception as e:
-            print(f"Failed to load SentenceTransformer: {e}")
-            # Fallback or raise error? For now let it crash if we can't load embeddings
+            print(f"Failed to load FastEmbed: {e}")
             raise e
-    return _embedding_function
+    return _embedding_model
 
 def get_chroma_client():
     """
@@ -66,7 +83,6 @@ def rebuild_public_vector_db(db: Session, operator: str = "system"):
         dict: A dictionary containing the status and the number of files processed.
     """
     client = get_chroma_client()
-    ef = get_embedding_function()
     
     # 1. Delete existing collection if it exists and create a new one to start fresh
     try:
@@ -74,7 +90,7 @@ def rebuild_public_vector_db(db: Session, operator: str = "system"):
     except ValueError:
         pass # Collection might not exist, which is fine
     
-    collection = client.create_collection("public_law", embedding_function=ef)
+    collection = get_public_collection()
     
     # Clear database records for public files to sync with vector DB
     db.query(PublicLawFile).delete()

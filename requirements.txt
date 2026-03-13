@@ -13,5 +13,5 @@ aiohttp
 langchain
 langchain-openai
 openai
-sentence-transformers
-numpy<2.0.0
+fastembed
+msvc-runtime
