@@ -183,6 +183,7 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+新建文本文档.txt
 
 # Compiled files
 *.class
