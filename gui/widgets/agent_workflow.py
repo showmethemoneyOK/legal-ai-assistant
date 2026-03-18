@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel, 
-                             QLineEdit, QTextBrowser, QMessageBox, QHBoxLayout)
+                             QLineEdit, QTextBrowser, QMessageBox, QHBoxLayout, QFileDialog)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 import requests
 import json
@@ -40,8 +40,13 @@ class AgentWorkflow(QWidget):
         # Input Area
         input_layout = QHBoxLayout()
         self.question_input = QLineEdit()
-        self.question_input.setPlaceholderText("Enter your legal question or file path here...")
+        self.question_input.setPlaceholderText("Enter your legal question or select a file...")
         input_layout.addWidget(self.question_input)
+
+        # Browse File Button
+        self.browse_btn = QPushButton("Upload File")
+        self.browse_btn.clicked.connect(self.browse_file)
+        input_layout.addWidget(self.browse_btn)
 
         self.run_btn = QPushButton("Test Agent Flow")
         self.run_btn.clicked.connect(self.run_agent)
@@ -57,6 +62,12 @@ class AgentWorkflow(QWidget):
         # Debug/Log Area (optional, maybe just show in output for now)
         
         self.setLayout(layout)
+
+    def browse_file(self):
+        """Open file dialog to select a document."""
+        file_name, _ = QFileDialog.getOpenFileName(self, "Select Legal Document", "", "Documents (*.docx *.pdf)")
+        if file_name:
+            self.question_input.setText(file_name)
 
     def run_agent(self):
         question = self.question_input.text().strip()

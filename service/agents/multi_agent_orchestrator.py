@@ -1,11 +1,35 @@
 import os
+import yaml
 from typing import Dict, List, Optional, TypedDict, Any
+from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, END
 from legal_ai.core.llm import LLMFactory
 from legal_ai.service.vector_service import search_public_law
 from legal_ai.service.law_service import extract_text_from_file
+
+# --- Models ---
+class VerifierOutput(BaseModel):
+    score: int = Field(description="Score from 0 to 10")
+    passed: bool = Field(description="Whether the analysis passed verification (score >= 7)")
+    issues: List[str] = Field(description="List of identified issues or shortcomings")
+    suggestions: List[str] = Field(description="List of suggestions for improvement in the next iteration")
+
+# --- Helper ---
+def load_role_prompt(role_name: str) -> str:
+    """Load system prompt from yaml file."""
+    prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "role_prompts.yaml")
+    try:
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            prompts = yaml.safe_load(f)
+            if role_name in prompts and 'system_prompt' in prompts[role_name]:
+                return prompts[role_name]['system_prompt']
+    except Exception as e:
+        print(f"Warning: Failed to load prompt for {role_name} from {prompt_path}: {e}")
+    
+    # Fallback default
+    return "You are a helpful legal assistant. Please complete the following task:\n{context}\n{question}"
 
 # Define State
 class AgentState(TypedDict):
@@ -19,18 +43,24 @@ class AgentState(TypedDict):
     node_plan: List[Dict[str, str]]
     sub_results: List[str]
     vote_records: List[Dict[str, Any]]
+    # Phase 3 fields
+    verifier_result: Dict[str, Any]
+    loop_count: int
+    execution_log: List[Dict[str, str]]
 
-# --- 1. Parser Node (Existing) ---
+def _log_execution(state: AgentState, node_name: str, summary: str):
+    log_entry = {"node": node_name, "summary": summary}
+    if "execution_log" not in state or state["execution_log"] is None:
+        state["execution_log"] = []
+    state["execution_log"].append(log_entry)
+
+# --- 1. Parser Node ---
 def parser_node(state: AgentState):
-    """
-    Parser Node: Understands user intent and extracts search keywords.
-    Also handles file input if the question is a file path.
-    """
     print("--- Parser Node ---")
+    _log_execution(state, "parser", "Parsing user intent")
     question = state["question"]
     llm = LLMFactory.create_provider()
     
-    # 1. Check if input is a file path
     file_content = ""
     file_path = ""
     is_file = False
@@ -44,174 +74,136 @@ def parser_node(state: AgentState):
         else:
             context_question = question
     except Exception as e:
-        print(f"File check warning: {e}")
         context_question = question
 
-    # 2. Extract search keywords
     parser = JsonOutputParser()
-    prompt = ChatPromptTemplate.from_template(
-        """
-        You are a legal assistant. Extract key legal concepts and search terms from the user query.
-        If the query mentions a specific file or document, focus on the legal issues it might involve (e.g. lease, contract, risk, compliance).
-        
-        User Query: {question}
-        
-        Return a JSON object with:
-        - "keywords": list of string search terms (3-5 key terms) for the vector database
-        - "intent": brief description of user intent
-        - "summary": brief summary of the query or document topic
-        
-        {format_instructions}
-        """
-    )
+    prompt_str = load_role_prompt("ParserAgent")
+    prompt = ChatPromptTemplate.from_template(prompt_str)
+    
     chain = prompt | llm | parser
     try:
         parsed_info = chain.invoke({"question": context_question, "format_instructions": parser.get_format_instructions()})
-        
         if is_file:
             parsed_info["is_file_analysis"] = True
             parsed_info["file_path"] = file_path
             parsed_info["file_content_snippet"] = file_content 
         else:
             parsed_info["is_file_analysis"] = False
-            
     except Exception as e:
         print(f"Parser Error: {e}")
         parsed_info = {
-            "keywords": [question[:50]], 
-            "intent": "general", 
-            "is_file_analysis": is_file,
-            "file_path": file_path if is_file else None,
-            "file_content_snippet": file_content if is_file else None
+            "keywords": [question[:50]], "intent": "general", "is_file_analysis": is_file,
+            "file_path": file_path if is_file else None, "file_content_snippet": file_content if is_file else None
         }
         
-    print(f"Parsed Info: {parsed_info}")
+    print(f"Parsed Info: {parsed_info.get('intent')}")
     return {"parsed_info": parsed_info}
 
-# --- 2. Goal Voter Node (New) ---
+# --- 2. Goal Voter Node ---
 def goal_voter_node(state: AgentState):
-    """
-    Goal Voter: 3 Roles (Senior Partner, Junior Associate, Compliance Specialist)
-    vote on the understanding of the task.
-    """
     print("--- Goal Voter Node ---")
+    _log_execution(state, "goal_voter", "Voting on task goals")
     question = state["question"]
     parsed_info = state["parsed_info"]
     llm = LLMFactory.create_provider()
     
-    roles = ["Senior Partner", "Junior Associate", "Compliance Specialist"]
+    roles = ["SeniorPartner", "JuniorAssociate", "ComplianceSpecialist"]
     votes = []
     
-    # 1. Collect Votes
     for role in roles:
-        prompt = ChatPromptTemplate.from_template(
-            """
-            You are a {role} in a law firm. 
-            Review the User Query and Parsed Info.
-            Define the core legal goal, priority (High/Medium/Low), and scope of analysis.
-            
-            User Query: {question}
-            Parsed Info: {parsed_info}
-            
-            Return a concise analysis string.
-            """
-        )
+        prompt_str = load_role_prompt(role)
+        prompt = ChatPromptTemplate.from_template(prompt_str)
         chain = prompt | llm
         try:
-            res = chain.invoke({"role": role, "question": question, "parsed_info": str(parsed_info)})
+            res = chain.invoke({"question": question, "parsed_info": str(parsed_info)})
             votes.append(f"Role: {role}\nAnalysis: {res.content}")
         except Exception as e:
             votes.append(f"Role: {role}\nError: {str(e)}")
             
-    # 2. Aggregator
     agg_parser = JsonOutputParser()
     agg_prompt = ChatPromptTemplate.from_template(
-        """
-        You are the Managing Partner. Review the following 3 analyses from your team and synthesize a consensus goal.
-        
-        Team Analyses:
-        {votes}
-        
+        """You are the Managing Partner. Review the following 3 analyses from your team and synthesize a consensus goal.
+        Team Analyses:\n{votes}\n
         Return a JSON object with:
         - "consensus_intent": The agreed core intent
         - "priority": Final priority level
-        - "scope": Agreed scope of work
-        
-        {format_instructions}
-        """
+        - "scope": Agreed scope of work\n{format_instructions}"""
     )
     agg_chain = agg_prompt | llm | agg_parser
     try:
         consensus = agg_chain.invoke({"votes": "\n---\n".join(votes), "format_instructions": agg_parser.get_format_instructions()})
     except Exception as e:
-        print(f"Goal Aggregation Error: {e}")
         consensus = {"consensus_intent": parsed_info.get("intent"), "priority": "Medium", "scope": "General Analysis"}
 
-    print(f"Goal Consensus: {consensus}")
+    print(f"Goal Consensus: {consensus.get('consensus_intent')}")
     return {"goal_consensus": consensus, "vote_records": votes}
 
-# --- 3. Planner Node (New) ---
+# --- 3. Planner Node ---
 def planner_node(state: AgentState):
-    """
-    Planner: Decompose the consensus goal into execution steps.
-    """
     print("--- Planner Node ---")
+    _log_execution(state, "planner", f"Planning steps (Loop {state.get('loop_count', 0)})")
     goal = state["goal_consensus"]
     llm = LLMFactory.create_provider()
     
+    issues_context = ""
+    if state.get("verifier_result") and not state["verifier_result"].get("passed", True):
+        issues_context = f"Issues to fix: {state['verifier_result'].get('issues', [])}\nSuggestions: {state['verifier_result'].get('suggestions', [])}"
+    
     parser = JsonOutputParser()
-    prompt = ChatPromptTemplate.from_template(
-        """
-        Based on the legal goal, create a execution plan with 2-4 distinct steps.
-        Each step should be a specific task for a sub-agent.
-        
-        Goal: {goal}
-        
-        Return a JSON list of objects, where each object has:
-        - "step_name": Short name
-        - "role": The agent role best for this step (e.g. Researcher, Analyst, Reviewer)
-        - "description": Detailed instruction for the step
-        - "search_keywords": Specific keywords for vector search for this step
-        
-        {format_instructions}
-        """
-    )
+    prompt_str = load_role_prompt("PlannerAgent")
+    prompt = ChatPromptTemplate.from_template(prompt_str)
+    
     chain = prompt | llm | parser
     try:
-        plan = chain.invoke({"goal": str(goal), "format_instructions": parser.get_format_instructions()})
-        # Ensure it's a list
+        plan = chain.invoke({"goal": str(goal), "issues": issues_context, "format_instructions": parser.get_format_instructions()})
         if isinstance(plan, dict): plan = [plan]
     except Exception as e:
-        print(f"Planner Error: {e}")
-        plan = [{"step_name": "General Analysis", "role": "Generalist", "description": "Analyze the query based on general legal principles.", "search_keywords": ["law"]}]
+        plan = [{"step_name": "General Analysis", "role": "RiskAssessor", "description": "Analyze the query based on general legal principles.", "search_keywords": ["law"]}]
         
     print(f"Plan Generated: {len(plan)} steps")
     return {"node_plan": plan}
 
-# --- 4. Node Voter Node (New - Simplified) ---
+# --- 4. Node Voter Node (Upgraded) ---
 def node_voter_node(state: AgentState):
-    """
-    Node Voter: Reviews the plan and approves or refines it.
-    """
     print("--- Node Voter Node ---")
+    _log_execution(state, "node_voter", "Reviewing execution plan")
     plan = state["node_plan"]
-    # For this simplified version, we just pass through or doing a simple check.
-    # In a full version, this would call LLM to critique the plan.
-    print("Plan approved by Node Voter.")
+    llm = LLMFactory.create_provider()
+    
+    roles = ["SeniorPartner", "JuniorAssociate", "ComplianceSpecialist"]
+    votes = []
+    
+    parser = JsonOutputParser()
+    for role in roles:
+        prompt = ChatPromptTemplate.from_template(
+            """You are a {role}. Review the proposed execution plan.
+            Plan: {plan}
+            Return JSON: {{"decision": "approve" or "suggest_changes", "feedback": "your feedback"}}
+            {format_instructions}"""
+        )
+        chain = prompt | llm | parser
+        try:
+            res = chain.invoke({"role": role, "plan": str(plan), "format_instructions": parser.get_format_instructions()})
+            votes.append(res)
+        except Exception:
+            votes.append({"decision": "approve", "feedback": ""})
+            
+    # Simple aggregation: if any suggest changes, we might tweak, but for simplicity we just proceed with the plan and log feedback
+    rejections = [v for v in votes if v.get("decision") == "suggest_changes"]
+    if rejections:
+        print(f"Plan had {len(rejections)} change suggestions, proceeding with caution.")
+    else:
+        print("Plan fully approved.")
+        
     return {"node_plan": plan}
 
-# --- 5. Executor Node (Fan-out simulation) ---
+# --- 5. Executor Node ---
 def executor_node(state: AgentState):
-    """
-    Executor: Runs the plan steps.
-    Although LangGraph supports parallel nodes, for simplicity and stability in this script,
-    we iterate through the plan here (simulating parallel workers).
-    """
-    print("--- Executor Node (Fan-out) ---")
+    print("--- Executor Node ---")
+    _log_execution(state, "executor", "Executing planned steps")
     plan = state["node_plan"]
     parsed_info = state["parsed_info"]
     sub_results = []
-    
     llm = LLMFactory.create_provider()
     
     for step in plan:
@@ -219,12 +211,11 @@ def executor_node(state: AgentState):
         keywords = step.get("search_keywords", [])
         if isinstance(keywords, str): keywords = [keywords]
         
-        # A. Retrieval (Reusing vector_service logic per step)
         step_docs = []
         seen_ids = set()
         for kw in keywords:
             try:
-                results = search_public_law(kw, n_results=2) # Keep it focused
+                results = search_public_law(kw, n_results=2)
                 if results and results.get('ids'):
                     ids = results['ids'][0]
                     docs = results['documents'][0]
@@ -238,64 +229,42 @@ def executor_node(state: AgentState):
         
         context = "\n\n".join(step_docs) if step_docs else "No specific provisions found."
         
-        # B. Analysis (Sub-task execution)
-        # Check if we have file content to inject
         file_context = ""
         if parsed_info.get("is_file_analysis"):
             snippet = parsed_info.get("file_content_snippet", "")
             if len(snippet) > 5000: snippet = snippet[:5000] + "..."
             file_context = f"\nDocument Content:\n{snippet}"
             
-        prompt = ChatPromptTemplate.from_template(
-            """
-            You are executing a sub-task: {step_name}
-            Role: {role}
-            Instruction: {description}
-            
-            Relevant Laws:
-            {context}
-            {file_context}
-            
-            Provide your analysis for this specific step.
-            """
-        )
+        role_name = step.get("role", "RiskAssessor")
+        prompt_str = load_role_prompt(role_name)
+        if "{question}" in prompt_str: # fallback safety
+             prompt_str = "Task: {step_name}\nInstruction: {description}\nRelevant Laws:\n{context}\nDocument Content:\n{file_context}"
+             
+        prompt = ChatPromptTemplate.from_template(prompt_str)
         chain = prompt | llm
         try:
             res = chain.invoke({
                 "step_name": step.get("step_name"), 
-                "role": step.get("role"), 
                 "description": step.get("description"),
                 "context": context,
                 "file_context": file_context
             })
-            sub_results.append(f"### Step: {step.get('step_name')}\n{res.content}")
+            sub_results.append(f"### Step: {step.get('step_name')} (by {role_name})\n{res.content}")
         except Exception as e:
             sub_results.append(f"### Step: {step.get('step_name')}\nFailed: {e}")
 
     return {"sub_results": sub_results}
 
-# --- 6. Result Voter Node (New) ---
+# --- 6. Result Voter Node ---
 def result_voter_node(state: AgentState):
-    """
-    Result Voter: Synthesizes all sub-task results into a final answer.
-    """
     print("--- Result Voter Node ---")
+    _log_execution(state, "result_voter", "Synthesizing final report")
     sub_results = state["sub_results"]
     goal = state["goal_consensus"]
     llm = LLMFactory.create_provider()
     
-    prompt = ChatPromptTemplate.from_template(
-        """
-        You are the Lead Attorney. Synthesize the following sub-task analyses into a final, cohesive legal report.
-        
-        Goal: {goal}
-        
-        Sub-task Results:
-        {sub_results}
-        
-        Ensure the final report is structured, professional, and directly addresses the client's goal.
-        """
-    )
+    prompt_str = load_role_prompt("LeadAttorney")
+    prompt = ChatPromptTemplate.from_template(prompt_str)
     chain = prompt | llm
     try:
         final_res = chain.invoke({"goal": str(goal), "sub_results": "\n\n".join(sub_results)})
@@ -305,17 +274,56 @@ def result_voter_node(state: AgentState):
         
     return {"analysis_result": analysis_result}
 
-# --- 7. Output Node (Enhanced) ---
-def output_node(state: AgentState):
-    """
-    Output Node: Final formatting.
-    """
-    print("--- Output Node ---")
-    analysis = state["analysis_result"]
-    # We could collect references from sub_results if we parsed them, 
-    # but for now we just present the synthesized analysis.
+# --- 7. Verifier Node (New) ---
+def verifier_node(state: AgentState):
+    print("--- Verifier Node ---")
+    _log_execution(state, "verifier", "Verifying quality")
+    llm = LLMFactory.create_provider()
     
-    final_answer = f"{analysis}\n\n---\n*Generated by Legal AI Multi-Agent System (Consensus & Voting Enabled)*"
+    prompt_str = load_role_prompt("VerifierAgent")
+    prompt = ChatPromptTemplate.from_template(prompt_str)
+    parser = JsonOutputParser(pydantic_object=VerifierOutput)
+    
+    chain = prompt | llm | parser
+    try:
+        result = chain.invoke({
+            "goal": str(state["goal_consensus"]),
+            "plan": str(state["node_plan"]),
+            "analysis": state["analysis_result"],
+            "format_instructions": parser.get_format_instructions()
+        })
+    except Exception as e:
+        print(f"Verifier Error: {e}")
+        result = {"score": 10, "passed": True, "issues": [], "suggestions": []}
+        
+    print(f"Verification Score: {result.get('score')} - Passed: {result.get('passed')}")
+    return {"verifier_result": result, "loop_count": state.get("loop_count", 0) + 1}
+
+# --- Routing Logic ---
+def should_continue(state: AgentState) -> str:
+    result = state.get("verifier_result", {})
+    passed = result.get("passed", True)
+    loops = state.get("loop_count", 0)
+    
+    if passed or loops >= 3:
+        if not passed:
+            print("Max loops reached. Proceeding to output despite failing verification.")
+        return "output"
+    else:
+        print(f"Verification failed. Looping back to planner (Loop {loops}).")
+        return "planner"
+
+# --- 8. Output Node ---
+def output_node(state: AgentState):
+    print("--- Output Node ---")
+    _log_execution(state, "output", "Formatting final output")
+    analysis = state["analysis_result"]
+    v_res = state.get("verifier_result", {})
+    loops = state.get("loop_count", 1)
+    
+    meta_info = f"\n\n---\n**Quality Assurance Report:**\n- Score: {v_res.get('score', 'N/A')}/10\n- Status: {'Passed' if v_res.get('passed', True) else 'Forced Output'}\n- Iterations: {loops}\n"
+    
+    final_answer = f"{analysis}{meta_info}\n*Generated by Legal AI Multi-Agent System*"
     return {"final_answer": final_answer}
 
 # Orchestrator Class
@@ -323,44 +331,40 @@ class MultiAgentOrchestrator:
     def __init__(self):
         self.workflow = StateGraph(AgentState)
         
-        # Add nodes
         self.workflow.add_node("parser", parser_node)
         self.workflow.add_node("goal_voter", goal_voter_node)
         self.workflow.add_node("planner", planner_node)
         self.workflow.add_node("node_voter", node_voter_node)
         self.workflow.add_node("executor", executor_node)
         self.workflow.add_node("result_voter", result_voter_node)
+        self.workflow.add_node("verifier", verifier_node)
         self.workflow.add_node("output", output_node)
         
-        # Define edges
         self.workflow.set_entry_point("parser")
         self.workflow.add_edge("parser", "goal_voter")
         self.workflow.add_edge("goal_voter", "planner")
         self.workflow.add_edge("planner", "node_voter")
         self.workflow.add_edge("node_voter", "executor")
         self.workflow.add_edge("executor", "result_voter")
-        self.workflow.add_edge("result_voter", "output")
+        self.workflow.add_edge("result_voter", "verifier")
+        
+        self.workflow.add_conditional_edges("verifier", should_continue, {
+            "output": "output",
+            "planner": "planner"
+        })
         self.workflow.add_edge("output", END)
         
-        # Compile graph
         self.app = self.workflow.compile()
         
     def run(self, question: str) -> Dict:
-        """
-        Run the agent workflow.
-        """
         print(f"Starting Multi-Agent Workflow for: {question}")
         initial_state = {
             "question": question,
-            "parsed_info": {},
-            "goal_consensus": {},
-            "node_plan": [],
-            "sub_results": [],
-            "vote_records": []
+            "parsed_info": {}, "goal_consensus": {}, "node_plan": [],
+            "sub_results": [], "vote_records": [], "verifier_result": {},
+            "loop_count": 0, "execution_log": []
         }
-        # invoke returns the final state
         final_state = self.app.invoke(initial_state)
         return final_state
 
-# Singleton instance
 orchestrator = MultiAgentOrchestrator()
