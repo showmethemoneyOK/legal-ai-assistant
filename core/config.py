@@ -27,12 +27,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # LLM Configuration
 # Options: "openai", "local"
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 
 # OpenAI Configuration https://api.openai.com/v1
-# Ollama api http://localhost:11434/v1
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "ollama")
-OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
+OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "glm4:latest")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "http://localhost:11434/v1")
 
 # Local LLM Configuration (e.g., Ollama, LM Studio, vLLM)

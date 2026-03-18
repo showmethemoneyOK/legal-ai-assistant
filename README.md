@@ -10,11 +10,12 @@
     *   **全量重建**: 支持一键重建整个公共法律向量库。
     *   **单文件增量更新**: 支持针对单个法律文件（如《民法典》修订）进行增量更新，无需重建整个库。
 *   **多用户管理**: 内置用户系统和权限管理，支持文档的私有化存储和授权共享。
-*   **多智能体工作流 (Multi-Agent Workflow)**:
-    *   **Parser Agent**: 智能解析用户意图，提取关键词，支持文件路径输入
-    *   **Search Agent**: 基于向量数据库进行语义检索，查找相关法律条款
-    *   **Analysis Agent**: 风险审查与合规性分析，提供专业法律建议
-    *   **Orchestrator**: 基于 LangGraph 的任务协调器，管理多智能体协作流程
+*   **高级多智能体工作流 (Advanced Multi-Agent Workflow)**:
+    *   **智能意图解析**: 支持文本输入和文件路径输入，自动解析文档内容
+    *   **多角色投票机制**: 资深合伙人、初级律师、合规专家三方投票确定分析目标
+    *   **任务规划分解**: 将复杂法律问题分解为可执行的子任务
+    *   **分布式执行**: 多个智能体并行处理不同子任务
+    *   **结果聚合**: 综合各智能体分析结果，生成最终建议
 *   **可视化界面**: 提供基于 PyQt6 的桌面客户端，操作便捷，包含专门的多智能体工作流界面。
 
 ## 📚 详细文档
@@ -31,7 +32,8 @@
 *   **文档解析**: python-docx, pdfplumber
 *   **ORM**: SQLAlchemy
 *   **智能体框架**: LangGraph (工作流编排), LangChain (Agent基础)
-*   **AI模型**: 支持本地/云端 LLM (通过 LLMFactory 统一接口)
+*   **AI模型**: 支持 OpenAI API 兼容接口，默认使用 GLM-4 模型，可通过 LLMFactory 切换其他模型
+*   **工作流引擎**: 基于 LangGraph 的状态机，支持复杂多智能体协作
 
 ## 📂 目录结构
 
@@ -41,7 +43,7 @@ legal_ai/
 │   ├── routes/          # 路由定义 (auth, doc, vector, agent)
 │   └── server.py        # 服务启动入口
 ├── core/                # 核心配置
-│   ├── config.py        # 路径与环境配置
+│   ├── config.py        # 路径与环境配置 (支持GLM-4等模型)
 │   └── database.py      # 数据库连接会话
 ├── data/                # 数据存储目录
 │   └── public_law/      # 公共法律法规文件 (.docx, .pdf)
@@ -61,9 +63,9 @@ legal_ai/
 │   │   ├── base_agent.py    # 智能体基类
 │   │   ├── search_agent.py  # 检索智能体
 │   │   └── analysis_agent.py # 分析智能体
-│   └── agents/          # 多智能体工作流
+│   └── agents/          # 高级多智能体工作流
 │       ├── __init__.py
-│       └── multi_agent_orchestrator.py # LangGraph 协调器
+│       └── multi_agent_orchestrator.py # LangGraph 协调器 (支持投票、规划、分布式执行)
 ├── vector_db/           # 向量数据库存储目录
 │   └── chroma_db/       # ChromaDB 持久化文件
 ├── main.py              # 项目启动入口
@@ -91,11 +93,23 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. 准备数据
+### 2. 配置 AI 模型
+
+系统默认使用 GLM-4 模型，通过 OpenAI API 兼容接口调用。确保您的本地或远程模型服务正常运行：
+
+```bash
+# 默认配置使用 http://localhost:11434/v1 (Ollama 兼容接口)
+# 如需修改模型配置，编辑 core/config.py:
+# LLM_PROVIDER = "openai"  # 使用OpenAI兼容接口
+# OPENAI_MODEL_NAME = "glm4:latest"  # 使用GLM-4模型
+# OPENAI_API_BASE = "http://localhost:11434/v1"  # Ollama API地址
+```
+
+### 3. 准备数据
 
 将您的法律法规文件（支持 `.docx` 和 `.pdf` 格式）放入 `legal_ai/data/public_law/` 目录中。系统会自动扫描该目录下的文件构建向量库。
 
-### 3. 运行程序
+### 4. 运行程序
 
 在项目根目录下运行启动脚本：
 
@@ -107,7 +121,7 @@ python main.py
 1.  **FastAPI 后端服务**: 运行在 `http://127.0.0.1:8000`
 2.  **桌面客户端**: 自动弹出登录窗口
 
-### 4. 使用说明
+### 5. 使用说明
 
 1.  **注册/登录**: 首次使用请在登录窗口点击 "Register" 注册新用户，然后登录。
 2.  **向量库管理**:
@@ -115,52 +129,77 @@ python main.py
     *   点击 **"Rebuild Public Vector DB (Full)"** 初始化或重建整个公共法律库。
     *   若需更新单个文件，在 "Single File Update" 区域选择文件路径并点击 "Update File"。
     *   在 "Search Test" 区域输入法律问题进行语义检索测试。
-3.  **多智能体工作流**:
+3.  **高级多智能体工作流**:
     *   进入 "Agent Workflow" 标签页。
     *   输入法律问题或文档文件路径（支持 `.docx` 和 `.pdf` 格式）。
-    *   点击 "Test Agent Flow" 启动多智能体分析流程。
-    *   系统将自动执行：意图解析 → 法律检索 → 风险分析 → 综合建议。
+    *   点击 "Test Agent Flow" 启动高级多智能体分析流程。
+    *   系统将自动执行：意图解析 → 多角色投票 → 任务规划 → 分布式执行 → 结果聚合。
 
 ## 📝 开发文档
 
-### 多智能体架构设计
+### 高级多智能体架构设计
 
-系统采用基于 **LangGraph** 的多智能体工作流，实现法律问题的端到端分析：
+系统采用基于 **LangGraph** 的高级多智能体工作流，实现法律问题的端到端智能分析：
 
 ```
-用户输入
+用户输入 (文本或文件路径)
     ↓
-[Parser Agent] - 解析意图，提取关键词，支持文件输入
+[Parser Node] - 解析意图，提取关键词，支持文件内容解析
     ↓
-[Search Agent] - 基于向量数据库检索相关法律条款
+[Goal Voter Node] - 三方投票机制 (资深合伙人、初级律师、合规专家)
     ↓
-[Analysis Agent] - 风险审查与合规性分析
+[Planner Node] - 任务分解，生成执行计划
     ↓
-[Orchestrator] - 协调流程，生成综合建议
+[Node Voter Node] - 计划评审与优化
     ↓
-最终答案
+[Distributed Executor] - 并行执行子任务
+    ↓
+[Aggregator Node] - 结果聚合与综合
+    ↓
+最终法律建议
 ```
 
-#### 智能体职责：
-1.  **Parser Agent**: 
-    - 识别用户意图（咨询、审查、起草等）
+#### 智能体节点职责：
+
+1.  **Parser Node**:
+    - 识别用户意图（法律咨询、合同审查、风险评估等）
     - 提取关键法律概念和搜索关键词
-    - 支持直接输入文件路径，自动解析文档内容
+    - 支持直接输入文件路径，自动解析 `.docx` 和 `.pdf` 文档内容
+    - 生成结构化解析信息供后续节点使用
 
-2.  **Search Agent**:
-    - 基于 ChromaDB 向量数据库进行语义检索
-    - 返回最相关的法律条款和案例
-    - 支持多轮检索和结果精炼
+2.  **Goal Voter Node** (新增):
+    - **三方投票机制**: 模拟律师事务所的多角色协作
+      - **资深合伙人**: 从战略和商业角度分析
+      - **初级律师**: 从法律条文和细节角度分析  
+      - **合规专家**: 从风险控制和合规角度分析
+    - 生成共识目标，确定分析优先级和范围
 
-3.  **Analysis Agent**:
-    - 评估法律风险等级
-    - 提供合规性建议
-    - 生成结构化分析报告
+3.  **Planner Node** (新增):
+    - 将共识目标分解为 2-4 个可执行的子任务
+    - 为每个子任务分配最合适的智能体角色
+    - 生成具体的搜索关键词和执行指令
 
-4.  **Orchestrator**:
-    - 基于 LangGraph 的工作流协调器
-    - 管理智能体间的状态传递
-    - 处理异常和重试逻辑
+4.  **Node Voter Node** (新增):
+    - 评审执行计划的合理性和完整性
+    - 优化任务分配和资源调度
+    - 确保各子任务间的协调性
+
+5.  **Distributed Executor**:
+    - 并行执行各个子任务
+    - 调用向量数据库进行法律检索
+    - 执行风险分析和合规性检查
+
+6.  **Aggregator Node**:
+    - 综合各子任务的分析结果
+    - 生成结构化法律建议报告
+    - 评估整体风险等级和合规状态
+
+### 技术实现特点
+
+1.  **状态管理**: 使用 `AgentState` TypedDict 管理整个工作流状态，包含解析信息、投票记录、执行计划、子结果等
+2.  **错误处理**: 每个节点都有完善的异常处理机制，确保工作流稳定性
+3.  **可扩展性**: 模块化设计，方便添加新的智能体节点或修改现有逻辑
+4.  **配置灵活**: 支持多种 AI 模型，可通过环境变量轻松切换
 
 ### 向量库更新机制
 
@@ -188,7 +227,7 @@ python main.py
 
 ## 🔌 API 接口
 
-### 多智能体工作流接口
+### 高级多智能体工作流接口
 
 **端点**: `POST /api/agent/run`
 
@@ -199,6 +238,13 @@ python main.py
 }
 ```
 
+或直接传入文件路径：
+```json
+{
+  "question": "C:/path/to/employment_contract.docx"
+}
+```
+
 **响应**:
 ```json
 {
@@ -206,8 +252,28 @@ python main.py
   "parsed_info": {
     "intent": "法律咨询",
     "keywords": ["劳动合同", "解除", "经济补偿金", "计算标准"],
-    "file_path": null
+    "file_path": null,
+    "is_file_analysis": false
   },
+  "goal_consensus": {
+    "consensus_intent": "劳动合同解除补偿计算",
+    "priority": "High",
+    "scope": "Compensation calculation and legal compliance"
+  },
+  "node_plan": [
+    {
+      "step_name": "法律条文检索",
+      "role": "Researcher",
+      "description": "检索劳动合同法相关条款",
+      "search_keywords": ["劳动合同法", "解除", "经济补偿"]
+    },
+    {
+      "step_name": "计算标准分析",
+      "role": "Analyst", 
+      "description": "分析补偿金计算方法和标准",
+      "search_keywords": ["补偿金计算", "工资标准", "工作年限"]
+    }
+  ],
   "retrieved_docs": [
     {
       "content": "《劳动合同法》第四十六条...",
@@ -215,15 +281,12 @@ python main.py
       "relevance_score": 0.92
     }
   ],
-  "analysis_result": "风险等级：低。建议：..."
-}
-```
-
-**支持文件输入**:
-可以直接传入文件路径，系统会自动解析文档内容：
-```json
-{
-  "question": "C:/path/to/legal_document.docx"
+  "analysis_result": "风险等级：低。建议：依法计算，注意保留相关证据。",
+  "vote_records": [
+    "Role: Senior Partner\nAnalysis: 从商业角度...",
+    "Role: Junior Associate\nAnalysis: 从法律细节角度...",
+    "Role: Compliance Specialist\nAnalysis: 从合规风险角度..."
+  ]
 }
 ```
 
@@ -234,10 +297,66 @@ python main.py
 - `POST /api/vector/rebuild` - 重建向量库
 - `POST /api/vector/update-file` - 更新单个文件
 
+## 🎯 应用场景
+
+### 1. 法律咨询自动化
+- 快速回答常见法律问题
+- 提供法律条文依据和解释
+- 生成初步法律意见
+
+### 2. 合同审查辅助
+- 自动解析合同文件
+- 识别潜在法律风险
+- 提供修改建议和合规指导
+
+### 3. 合规性检查
+- 检查业务操作的法律合规性
+- 识别违规风险点
+- 提供风险防控建议
+
+### 4. 法律研究支持
+- 快速检索相关法律条文
+- 分析法律适用性
+- 生成研究摘要和报告
+
+## 🔧 配置说明
+
+### AI 模型配置
+编辑 `core/config.py` 文件：
+
+```python
+# LLM 提供商配置
+LLM_PROVIDER = "openai"  # 或 "local"
+OPENAI_API_KEY = "ollama"  # 使用Ollama时设为"ollama"
+OPENAI_MODEL_NAME = "glm4:latest"  # 模型名称
+OPENAI_API_BASE = "http://localhost:11434/v1"  # API地址
+```
+
+### 工作流配置
+可通过修改 `service/agents/multi_agent_orchestrator.py` 调整：
+- 投票角色设置
+- 任务规划逻辑
+- 结果聚合策略
+
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request 来改进本项目。
+欢迎提交 Issue 和 Pull Request 来改进本项目。贡献前请阅读：
+1. 代码风格遵循 PEP 8
+2. 新增功能需包含单元测试
+3. 更新文档以反映代码变更
 
 ## 📄 许可证
 
 MIT License
+
+## 📞 支持
+
+如有问题或建议，请：
+1. 查看项目文档和 FAQ
+2. 提交 GitHub Issue
+3. 联系项目维护者
+
+---
+
+*最后更新: 2026-03-18*  
+*版本: 2.0.0 (高级多智能体版本)*
