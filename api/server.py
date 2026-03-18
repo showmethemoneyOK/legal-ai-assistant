@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from legal_ai.core.database import engine, Base
-from legal_ai.api.routes import auth, doc, vector
+from legal_ai.api.routes import auth, doc, vector, agent
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -11,6 +11,7 @@ app = FastAPI(title="Legal AI Assistant", version="1.0.0")
 app.include_router(auth.router, prefix="/api/user", tags=["User"])
 app.include_router(doc.router, prefix="/api/doc", tags=["Doc"])
 app.include_router(vector.router, prefix="/api/vector", tags=["Vector"])
+app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])
 
 @app.get("/")
 def read_root():

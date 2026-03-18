@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QTabWidget, 
                              QLabel, QStackedWidget)
 from legal_ai.gui.widgets.vector_manager import VectorManager
+from legal_ai.gui.widgets.agent_workflow import AgentWorkflow
 
 class MainWindow(QMainWindow):
     """
@@ -41,7 +42,12 @@ class MainWindow(QMainWindow):
         vector_manager = VectorManager(self.token)
         tabs.addTab(vector_manager, "Vector DB Manager")
         
-        # 3. Document AI (Placeholder)
+        # 3. Agent Workflow
+        # New LangGraph-powered multi-agent system
+        agent_workflow = AgentWorkflow(self.token)
+        tabs.addTab(agent_workflow, "Agent Workflow")
+
+        # 4. Document AI (Placeholder)
         # Future module for document generation and review
         doc_ai = QWidget()
         doc_ai_layout = QVBoxLayout()
