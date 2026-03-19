@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QTabWidget,
                              QLabel, QStackedWidget)
 from legal_ai.gui.widgets.vector_manager import VectorManager
 from legal_ai.gui.widgets.agent_workflow import AgentWorkflow
+from legal_ai.gui.widgets.model_config import ModelConfig
 
 class MainWindow(QMainWindow):
     """
@@ -47,7 +48,11 @@ class MainWindow(QMainWindow):
         agent_workflow = AgentWorkflow(self.token)
         tabs.addTab(agent_workflow, "Agent Workflow")
 
-        # 4. Document AI (Placeholder)
+        # 4. Model Config
+        model_config = ModelConfig(self.token)
+        tabs.addTab(model_config, "Model Config")
+
+        # 5. Document AI (Placeholder)
         # Future module for document generation and review
         doc_ai = QWidget()
         doc_ai_layout = QVBoxLayout()

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from legal_ai.core.database import Base
@@ -10,8 +10,9 @@ class User(Base):
     __tablename__ = "sys_user"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(100), nullable=False)
+    role = Column(String(20), default="user") # e.g., 'admin', 'lawyer', 'user'
     create_time = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -70,31 +71,26 @@ class DocPermission(Base):
     user = relationship("User", back_populates="shared_to_me")
 
 class PublicLawFile(Base):
-    """
-    Tracks the indexing status of public law files in the vector database.
-    Used to manage updates and avoid re-indexing unchanged files.
-    """
+    """Metadata for files indexed in the public vector database."""
     __tablename__ = "public_law_files"
 
     id = Column(Integer, primary_key=True, index=True)
-    file_name = Column(String)
-    file_path = Column(String, unique=True)
-    file_hash = Column(String) # SHA-256 hash for change detection
-    law_name = Column(String)
-    status = Column(String) # e.g., "indexed", "failed"
-    chunk_count = Column(Integer)
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), unique=True, nullable=False)
+    file_hash = Column(String(64), nullable=False) # SHA-256
+    law_name = Column(String(255))
+    status = Column(String(20), default="indexed") # indexed, error, updated
+    chunk_count = Column(Integer, default=0)
     update_time = Column(DateTime, default=datetime.utcnow)
 
 class VectorLog(Base):
-    """
-    Logs operations performed on the vector database (rebuild, update, delete).
-    """
+    """Audit log for vector database operations."""
     __tablename__ = "vector_log"
 
     id = Column(Integer, primary_key=True, index=True)
-    operate_type = Column(String) # rebuild/update/delete
-    file_path = Column(String)
-    operator = Column(String)
+    operate_type = Column(String(50)) # rebuild, update_single, delete
+    file_path = Column(String(500))
+    operator = Column(String(50))
     create_time = Column(DateTime, default=datetime.utcnow)
 
 class OperationLog(Base):
@@ -111,3 +107,41 @@ class OperationLog(Base):
     create_time = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="logs")
+
+class SystemConfig(Base):
+    """
+    Stores system-wide configurations, such as LLM settings.
+    """
+    __tablename__ = "sys_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String(50), unique=True, index=True, nullable=False)
+    config_value = Column(Text)
+    description = Column(String(255))
+    update_time = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class AgentExecutionLog(Base):
+    """Audit log for multi-agent workflow executions."""
+    __tablename__ = "agent_execution_log"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(64), index=True)
+    question = Column(Text)
+    node_name = Column(String(50))
+    summary_json = Column(Text)
+    verifier_score = Column(Float, nullable=True)
+    create_time = Column(DateTime, default=datetime.utcnow)
+
+class LLMModel(Base):
+    """
+    Stores dynamically added LLM model configurations for direct connection.
+    """
+    __tablename__ = "llm_model"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_name = Column(String(100), unique=True, index=True, nullable=False) # Alias/Frontend ID
+    target_model = Column(String(100), nullable=False) # Actual model name, e.g., gpt-4, qwen2.5:7b, deepseek-chat
+    api_base = Column(String(255)) # Base URL, e.g., http://127.0.0.1:11434/v1 or https://api.deepseek.com/v1
+    api_key = Column(String(255)) # Optional for local models, required for online models
+    create_time = Column(DateTime, default=datetime.utcnow)
+    update_time = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

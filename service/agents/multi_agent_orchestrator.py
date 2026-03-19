@@ -8,6 +8,7 @@ from langgraph.graph import StateGraph, END
 from legal_ai.core.llm import LLMFactory
 from legal_ai.service.vector_service import search_public_law
 from legal_ai.service.law_service import extract_text_from_file
+from legal_ai.utils.model_router import get_llm_provider
 
 # --- Models ---
 class VerifierOutput(BaseModel):
@@ -47,6 +48,7 @@ class AgentState(TypedDict):
     verifier_result: Dict[str, Any]
     loop_count: int
     execution_log: List[Dict[str, str]]
+    model_history: set[str]
 
 def _log_execution(state: AgentState, node_name: str, summary: str):
     log_entry = {"node": node_name, "summary": summary}
@@ -59,7 +61,7 @@ def parser_node(state: AgentState):
     print("--- Parser Node ---")
     _log_execution(state, "parser", "Parsing user intent")
     question = state["question"]
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     file_content = ""
     file_path = ""
@@ -83,6 +85,8 @@ def parser_node(state: AgentState):
     chain = prompt | llm | parser
     try:
         parsed_info = chain.invoke({"question": context_question, "format_instructions": parser.get_format_instructions()})
+        if not parsed_info:
+             raise ValueError("Empty parsed_info")
         if is_file:
             parsed_info["is_file_analysis"] = True
             parsed_info["file_path"] = file_path
@@ -105,7 +109,7 @@ def goal_voter_node(state: AgentState):
     _log_execution(state, "goal_voter", "Voting on task goals")
     question = state["question"]
     parsed_info = state["parsed_info"]
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     roles = ["SeniorPartner", "JuniorAssociate", "ComplianceSpecialist"]
     votes = []
@@ -133,7 +137,11 @@ def goal_voter_node(state: AgentState):
     try:
         consensus = agg_chain.invoke({"votes": "\n---\n".join(votes), "format_instructions": agg_parser.get_format_instructions()})
     except Exception as e:
-        consensus = {"consensus_intent": parsed_info.get("intent"), "priority": "Medium", "scope": "General Analysis"}
+        print(f"Goal Aggregation Error: {e}")
+        consensus = {"consensus_intent": parsed_info.get("intent", "general") if parsed_info else "general", "priority": "Medium", "scope": "General Analysis"}
+
+    if not consensus:
+        consensus = {"consensus_intent": parsed_info.get("intent", "general") if parsed_info else "general", "priority": "Medium", "scope": "General Analysis"}
 
     print(f"Goal Consensus: {consensus.get('consensus_intent')}")
     return {"goal_consensus": consensus, "vote_records": votes}
@@ -143,7 +151,7 @@ def planner_node(state: AgentState):
     print("--- Planner Node ---")
     _log_execution(state, "planner", f"Planning steps (Loop {state.get('loop_count', 0)})")
     goal = state["goal_consensus"]
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     issues_context = ""
     if state.get("verifier_result") and not state["verifier_result"].get("passed", True):
@@ -156,8 +164,11 @@ def planner_node(state: AgentState):
     chain = prompt | llm | parser
     try:
         plan = chain.invoke({"goal": str(goal), "issues": issues_context, "format_instructions": parser.get_format_instructions()})
+        if not plan:
+            raise ValueError("Empty plan returned by LLM")
         if isinstance(plan, dict): plan = [plan]
     except Exception as e:
+        print(f"Planner Error: {e}")
         plan = [{"step_name": "General Analysis", "role": "RiskAssessor", "description": "Analyze the query based on general legal principles.", "search_keywords": ["law"]}]
         
     print(f"Plan Generated: {len(plan)} steps")
@@ -168,7 +179,7 @@ def node_voter_node(state: AgentState):
     print("--- Node Voter Node ---")
     _log_execution(state, "node_voter", "Reviewing execution plan")
     plan = state["node_plan"]
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     roles = ["SeniorPartner", "JuniorAssociate", "ComplianceSpecialist"]
     votes = []
@@ -184,8 +195,11 @@ def node_voter_node(state: AgentState):
         chain = prompt | llm | parser
         try:
             res = chain.invoke({"role": role, "plan": str(plan), "format_instructions": parser.get_format_instructions()})
+            if not res:
+                res = {"decision": "approve", "feedback": "No feedback from LLM"}
             votes.append(res)
-        except Exception:
+        except Exception as e:
+            print(f"Node Voter Error for {role}: {e}")
             votes.append({"decision": "approve", "feedback": ""})
             
     # Simple aggregation: if any suggest changes, we might tweak, but for simplicity we just proceed with the plan and log feedback
@@ -204,7 +218,7 @@ def executor_node(state: AgentState):
     plan = state["node_plan"]
     parsed_info = state["parsed_info"]
     sub_results = []
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     for step in plan:
         print(f"Executing Step: {step.get('step_name')}")
@@ -249,8 +263,12 @@ def executor_node(state: AgentState):
                 "context": context,
                 "file_context": file_context
             })
-            sub_results.append(f"### Step: {step.get('step_name')} (by {role_name})\n{res.content}")
+            if not res or not res.content:
+                sub_results.append(f"### Step: {step.get('step_name')} (by {role_name})\nNo analysis result returned.")
+            else:
+                sub_results.append(f"### Step: {step.get('step_name')} (by {role_name})\n{res.content}")
         except Exception as e:
+            print(f"Executor Error for step {step.get('step_name')}: {e}")
             sub_results.append(f"### Step: {step.get('step_name')}\nFailed: {e}")
 
     return {"sub_results": sub_results}
@@ -261,7 +279,7 @@ def result_voter_node(state: AgentState):
     _log_execution(state, "result_voter", "Synthesizing final report")
     sub_results = state["sub_results"]
     goal = state["goal_consensus"]
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     prompt_str = load_role_prompt("LeadAttorney")
     prompt = ChatPromptTemplate.from_template(prompt_str)
@@ -278,7 +296,7 @@ def result_voter_node(state: AgentState):
 def verifier_node(state: AgentState):
     print("--- Verifier Node ---")
     _log_execution(state, "verifier", "Verifying quality")
-    llm = LLMFactory.create_provider()
+    llm = get_llm_provider(state)
     
     prompt_str = load_role_prompt("VerifierAgent")
     prompt = ChatPromptTemplate.from_template(prompt_str)
@@ -292,6 +310,8 @@ def verifier_node(state: AgentState):
             "analysis": state["analysis_result"],
             "format_instructions": parser.get_format_instructions()
         })
+        if not result:
+            result = {"score": 10, "passed": True, "issues": [], "suggestions": []}
     except Exception as e:
         print(f"Verifier Error: {e}")
         result = {"score": 10, "passed": True, "issues": [], "suggestions": []}
@@ -317,13 +337,10 @@ def should_continue(state: AgentState) -> str:
 def output_node(state: AgentState):
     print("--- Output Node ---")
     _log_execution(state, "output", "Formatting final output")
-    analysis = state["analysis_result"]
-    v_res = state.get("verifier_result", {})
-    loops = state.get("loop_count", 1)
     
-    meta_info = f"\n\n---\n**Quality Assurance Report:**\n- Score: {v_res.get('score', 'N/A')}/10\n- Status: {'Passed' if v_res.get('passed', True) else 'Forced Output'}\n- Iterations: {loops}\n"
+    from legal_ai.utils.report_generator import generate_markdown_report
+    final_answer = generate_markdown_report(state)
     
-    final_answer = f"{analysis}{meta_info}\n*Generated by Legal AI Multi-Agent System*"
     return {"final_answer": final_answer}
 
 # Orchestrator Class
@@ -362,7 +379,7 @@ class MultiAgentOrchestrator:
             "question": question,
             "parsed_info": {}, "goal_consensus": {}, "node_plan": [],
             "sub_results": [], "vote_records": [], "verifier_result": {},
-            "loop_count": 0, "execution_log": []
+            "loop_count": 0, "execution_log": [], "model_history": set()
         }
         final_state = self.app.invoke(initial_state)
         return final_state

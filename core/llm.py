@@ -1,78 +1,101 @@
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
 from legal_ai.core.config import (
-    LLM_PROVIDER,
-    OPENAI_API_KEY,
-    OPENAI_MODEL_NAME,
-    OPENAI_API_BASE,
-    LOCAL_LLM_API_BASE,
-    LOCAL_LLM_API_KEY,
-    LOCAL_MODEL_NAME
+    LLM_PROXY_BASE,
+    LLM_MASTER_KEY,
+    DEFAULT_MODEL_NAME
 )
+from legal_ai.core.database import SessionLocal
+from legal_ai.db.models import SystemConfig, LLMModel
 
 class LLMFactory:
     """
-    Factory class to create LangChain Chat Models based on configuration or explicit parameters.
-    Supports creating multiple distinct providers for multi-agent scenarios.
+    Factory class to create LangChain Chat Models directly connecting to providers
+    (like OpenAI, DeepSeek, or local Ollama) based on database configurations.
     """
     _default_instance = None
 
     @classmethod
+    def _get_db_configs(cls) -> Dict[str, str]:
+        """Fetch all configurations from the database."""
+        db = SessionLocal()
+        try:
+            configs = db.query(SystemConfig).all()
+            return {c.config_key: c.config_value for c in configs}
+        except Exception as e:
+            print(f"Warning: Could not fetch configs from DB: {e}")
+            return {}
+        finally:
+            db.close()
+            
+    @classmethod
+    def _get_model_config(cls, model_name: str) -> Optional[LLMModel]:
+        """Fetch a specific model configuration from the database."""
+        db = SessionLocal()
+        try:
+            return db.query(LLMModel).filter(LLMModel.model_name == model_name).first()
+        except Exception as e:
+            print(f"Warning: Could not fetch model config from DB: {e}")
+            return None
+        finally:
+            db.close()
+
+    @classmethod
     def create_provider(cls, 
-                        provider: str = None, 
                         model: str = None, 
-                        api_key: str = None, 
-                        base_url: str = None,
-                        temperature: float = 0.7) -> BaseChatModel:
+                        temperature: float = 0.7,
+                        max_tokens: int = None,
+                        streaming: bool = False) -> BaseChatModel:
         """
-        Create a new instance of a LangChain Chat Model with specific settings.
-        Useful for multi-agent systems where different agents need different models.
-        
-        Args:
-            provider (str): "openai" or "local". Defaults to config.LLM_PROVIDER if None.
-            model (str): Model name (e.g. "gpt-4", "llama3"). Defaults to config if None.
-            api_key (str): API Key. Defaults to config if None.
-            base_url (str): API Base URL. Defaults to config if None.
-            temperature (float): Sampling temperature. Defaults to 0.7.
-            
-        Returns:
-            BaseChatModel: An instance of the requested LangChain Chat Model (e.g., ChatOpenAI).
+        Create a new instance of a LangChain Chat Model directly connecting to the provider.
+        Supports both synchronous and asynchronous usage depending on how the returned object is called
+        (e.g., .invoke() vs .ainvoke(), .stream() vs .astream()).
         """
-        # 1. Resolve configuration (Priority: explicit arg > config > default)
-        provider_type = (provider or LLM_PROVIDER).lower()
+        # 1. Load DB configs to get default model name if not provided
+        db_configs = cls._get_db_configs()
+        target_model_name = model or db_configs.get("DEFAULT_MODEL_NAME") or DEFAULT_MODEL_NAME
+
+        if not target_model_name:
+            print("Warning: DEFAULT_MODEL_NAME is not set. Using fallback.")
+            target_model_name = "default-model"
+
+        # 2. Fetch specific model configuration
+        model_config = cls._get_model_config(target_model_name)
         
-        if provider_type == "openai":
-            api_key = api_key or OPENAI_API_KEY
-            model = model or OPENAI_MODEL_NAME
-            base_url = base_url or OPENAI_API_BASE
-            
-            if not api_key:
-                print("Warning: OPENAI_API_KEY is not set.")
-                
-            return ChatOpenAI(
-                model=model,
-                api_key=api_key,
-                base_url=base_url,
-                temperature=temperature
-            )
-            
-        elif provider_type == "local":
-            base_url = base_url or LOCAL_LLM_API_BASE
-            model = model or LOCAL_MODEL_NAME
-            api_key = api_key or LOCAL_LLM_API_KEY
-            
-            # For local models (Ollama/vLLM) that are OpenAI-compatible, we also use ChatOpenAI
-            return ChatOpenAI(
-                model=model,
-                api_key=api_key,
-                base_url=base_url,
-                temperature=temperature
-            )
-            
+        if model_config:
+            api_key = model_config.api_key or "sk-dummy"
+            base_url = model_config.api_base
+            actual_model = model_config.target_model
         else:
-            raise ValueError(f"Unsupported LLM_PROVIDER: {provider_type}. Use 'openai' or 'local'.")
+            # Fallback to old behavior if model not found in DB
+            print(f"Warning: Model {target_model_name} not found in DB. Falling back to default proxy settings.")
+            api_key = db_configs.get("LLM_MASTER_KEY") or LLM_MASTER_KEY
+            base_url = db_configs.get("LLM_PROXY_BASE") or LLM_PROXY_BASE
+            actual_model = target_model_name
+
+        # Ensure base_url has no trailing slash, but ends with /v1 for openai client
+        if base_url:
+            base_url = base_url.rstrip('/')
+            if not base_url.endswith('/v1'):
+                base_url = f"{base_url}/v1"
+
+        # Initialize the ChatOpenAI client which can handle sync/async/streaming natively
+        kwargs = {
+            "model": actual_model,
+            "api_key": api_key,
+            "temperature": temperature,
+            "streaming": streaming
+        }
+        
+        if base_url:
+            kwargs["base_url"] = base_url
+            
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+
+        return ChatOpenAI(**kwargs)
 
     @classmethod
     def get_default_provider(cls) -> BaseChatModel:
@@ -88,6 +111,6 @@ class LLMFactory:
 def get_llm() -> BaseChatModel:
     return LLMFactory.get_default_provider()
 
-# Helper function to create a specific LLM (e.g., for a specific agent)
-def create_llm(provider: str, model: str, **kwargs) -> BaseChatModel:
-    return LLMFactory.create_provider(provider=provider, model=model, **kwargs)
+# Helper function to create a specific LLM
+def create_llm(model: str, **kwargs) -> BaseChatModel:
+    return LLMFactory.create_provider(model=model, **kwargs)

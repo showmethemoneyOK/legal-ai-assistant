@@ -25,18 +25,14 @@ SECRET_KEY = "your-secret-key-here"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# LLM Configuration
-# Options: "openai", "local"
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+# LLM Proxy Configuration (LiteLLM)
+# Default values for the local LiteLLM Proxy. These can be overridden in the database.
+LLM_PROXY_BASE = os.getenv("LLM_PROXY_BASE", "http://localhost:4000/v1")
+LLM_MASTER_KEY = os.getenv("LLM_MASTER_KEY", "sk-legalai-master-2026")
+DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "ollama/qwen2.5:7b") # Example default
 
-# OpenAI Configuration https://api.openai.com/v1
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "ollama")
-OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "glm4:latest")
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "http://localhost:11434/v1")
+# Global execution mode for LLMs
+ASYNC_MODEL_EXECUTION = os.getenv("ASYNC_MODEL_EXECUTION", "false").lower() == "true"
 
-# Local LLM Configuration (e.g., Ollama, LM Studio, vLLM)
-# Default points to Ollama running locally
-LOCAL_LLM_API_BASE = os.getenv("LOCAL_LLM_API_BASE", "http://localhost:11434/v1")
-LOCAL_LLM_API_KEY = os.getenv("LOCAL_LLM_API_KEY", "ollama") # Often not needed for local models
-LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "qwen2.5:7b")
+
 
