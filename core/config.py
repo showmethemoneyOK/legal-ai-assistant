@@ -27,8 +27,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # LLM Proxy Configuration (LiteLLM)
 # Default values for the local LiteLLM Proxy. These can be overridden in the database.
+# IMPORTANT: Never commit real API keys to version control!
 LLM_PROXY_BASE = os.getenv("LLM_PROXY_BASE", "http://localhost:4000/v1")
-LLM_MASTER_KEY = os.getenv("LLM_MASTER_KEY", "sk-legalai-master-2026")
+LLM_MASTER_KEY = os.getenv("LLM_MASTER_KEY", "")  # Must be set via environment variable
 DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "ollama/qwen2.5:7b") # Example default
 
 # Global execution mode for LLMs

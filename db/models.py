@@ -128,9 +128,10 @@ class AgentExecutionLog(Base):
     task_id = Column(String(64), index=True)
     question = Column(Text)
     node_name = Column(String(50))
-    summary_json = Column(Text)
+    summary = Column(Text)
     verifier_score = Column(Float, nullable=True)
-    create_time = Column(DateTime, default=datetime.utcnow)
+    model_used = Column(String(255))
+    timestamp = Column(DateTime, default=datetime.utcnow)
 
 class LLMModel(Base):
     """

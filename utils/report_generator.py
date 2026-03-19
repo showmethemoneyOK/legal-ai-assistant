@@ -10,7 +10,12 @@ def generate_markdown_report(final_state: Dict[str, Any]) -> str:
     plan = final_state.get("node_plan", [])
     v_res = final_state.get("verifier_result", {})
     loops = final_state.get("loop_count", 1)
-    models = ", ".join(final_state.get("model_history", {"local"}))
+    
+    # Extract models
+    models_set = final_state.get("model_history", set())
+    if not models_set:
+        models_set = {"local"}
+    models = ", ".join(models_set)
     
     # Format Plan Table
     plan_md = "| Step | Role | Description | Keywords |\n|---|---|---|---|\n"
@@ -18,12 +23,23 @@ def generate_markdown_report(final_state: Dict[str, Any]) -> str:
         kws = ", ".join(step.get("search_keywords", []))
         plan_md += f"| {step.get('step_name')} | {step.get('role')} | {step.get('description')} | {kws} |\n"
 
+    # Format Execution Log Table
+    log_md = "| Node | Summary |\n|---|---|\n"
+    for log in final_state.get("execution_log", []):
+        log_md += f"| {log.get('node', 'unknown')} | {log.get('summary', '')} |\n"
+
     # Format Sub-results
     sub_res_md = "\n\n".join(final_state.get("sub_results", []))
     
+    warning_md = ""
+    if loops > 1:
+        warning_md += f"\n> ⚠️ **Warning**: The analysis required {loops} iterations to pass quality verification.\n"
+    if "gpt-4" in models.lower() or "claude" in models.lower():
+        warning_md += f"\n> ℹ️ **Notice**: Cloud model used during fallback or complex reasoning.\n"
+    
     # Build full report
     report = f"""# Legal Analysis Report
-
+{warning_md}
 ## 1. Request Details
 **Query / File**: {question}
 **Core Intent**: {goal.get('consensus_intent', 'N/A')}
@@ -39,7 +55,10 @@ def generate_markdown_report(final_state: Dict[str, Any]) -> str:
 ### 3.1 Workflow Plan
 {plan_md}
 
-### 3.2 Sub-Task Findings
+### 3.2 Execution Log
+{log_md}
+
+### 3.3 Sub-Task Findings
 <details>
 <summary>Click to view detailed findings</summary>
 
@@ -47,7 +66,7 @@ def generate_markdown_report(final_state: Dict[str, Any]) -> str:
 
 </details>
 
-### 3.3 Quality Assurance
+### 3.4 Quality Assurance
 - **Verifier Score**: {v_res.get('score', 'N/A')}/10
 - **Status**: {'Passed' if v_res.get('passed', True) else 'Forced Output'}
 - **Iterations**: {loops}
