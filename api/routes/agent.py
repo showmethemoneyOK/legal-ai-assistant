@@ -27,24 +27,28 @@ async def run_agent_workflow(request: AgentRequest, db: Session = Depends(get_db
     """
     try:
         task_id = str(uuid.uuid4())
-        # Run the LangGraph workflow
-        final_state = orchestrator.run(request.question)
+        # Run the LangGraph workflow asynchronously
+        final_state = await orchestrator.arun(request.question)
         
         # Persist Execution Log to DB
         execution_logs = final_state.get("execution_log", [])
         v_res = final_state.get("verifier_result", {})
         score = v_res.get("score", None)
         
-        for log in execution_logs:
-            db_log = AgentExecutionLog(
-                task_id=task_id,
-                question=request.question,
-                node_name=log.get("node"),
-                summary_json=json.dumps(log),
-                verifier_score=score if log.get("node") == "verifier" else None
-            )
-            db.add(db_log)
-        db.commit()
+        def save_logs():
+            for log in execution_logs:
+                db_log = AgentExecutionLog(
+                    task_id=task_id,
+                    question=request.question,
+                    node_name=log.get("node"),
+                    summary_json=json.dumps(log),
+                    verifier_score=score if log.get("node") == "verifier" else None
+                )
+                db.add(db_log)
+            db.commit()
+            
+        import asyncio
+        await asyncio.to_thread(save_logs)
         
         # Note: model_history is a set, need to convert to list for JSON serialization if returned directly,
         # but report_generator already handles it in final_answer.

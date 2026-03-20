@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
 import logging
-import os
 from langchain_openai import ChatOpenAI
 
 from legal_ai.core.database import get_db
@@ -21,7 +20,7 @@ class TestModelRequest(BaseModel):
 
 @router.get("/models")
 async def get_models(db: Session = Depends(get_db)):
-    """Fetch all configured models from the database (API keys are masked)."""
+    """Fetch all configured models from the database."""
     try:
         models = db.query(LLMModel).all()
         result = []
@@ -31,7 +30,7 @@ async def get_models(db: Session = Depends(get_db)):
                 "litellm_params": {
                     "model": model.target_model,
                     "api_base": model.api_base,
-                    "api_key": "***MASKED***"  # Never expose API keys
+                    "api_key": model.api_key
                 }
             })
         return result
@@ -88,7 +87,7 @@ async def test_model(request: TestModelRequest, db: Session = Depends(get_db)):
         async_config = db.query(SystemConfig).filter(SystemConfig.config_key == "ASYNC_MODEL_EXECUTION").first()
         is_async = async_config and async_config.config_value.lower() == "true"
             
-        api_key = model.api_key or os.getenv("LLM_API_KEY", "") # Default for local models that might not need it
+        api_key = model.api_key or "sk-dummy" # Default for local models that might not need it
         base_url = model.api_base
         
         # Ensure base_url has no trailing slash, but ends with /v1 for openai client

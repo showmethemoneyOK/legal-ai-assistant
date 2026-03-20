@@ -17,7 +17,14 @@ class ConfigDelete(BaseModel):
 def get_all_configs(db: Session = Depends(get_db)):
     """Retrieve all system configurations."""
     configs = db.query(SystemConfig).all()
-    return {c.config_key: c.config_value for c in configs}
+    result = {c.config_key: c.config_value for c in configs}
+    
+    # Ensure default configs are returned even if not in DB
+    from legal_ai.core.config import DEFAULT_MODEL_NAME
+    if "DEFAULT_MODEL_NAME" not in result:
+        result["DEFAULT_MODEL_NAME"] = DEFAULT_MODEL_NAME
+        
+    return result
 
 @router.post("/")
 def update_configs(data: ConfigUpdate, db: Session = Depends(get_db)):

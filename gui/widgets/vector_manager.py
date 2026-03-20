@@ -26,46 +26,50 @@ class VectorManager(QWidget):
         layout = QVBoxLayout()
         
         # --- Section 1: Title ---
-        layout.addWidget(QLabel("<h2>Vector Database Manager</h2>"))
+        layout.addWidget(QLabel("<h2>🗄️ 向量数据库管理</h2>"))
         
         # --- Section 2: Full Rebuild ---
         # Button to trigger full database rebuild
-        self.rebuild_btn = QPushButton("Rebuild Public Vector DB (Full)")
+        self.rebuild_btn = QPushButton("🔄 重建公开法律向量库（完整）")
+        self.rebuild_btn.setStyleSheet("background-color: #FF5722; color: white; font-weight: bold; border-radius: 4px; padding: 8px;")
         self.rebuild_btn.clicked.connect(self.rebuild_db)
         layout.addWidget(self.rebuild_btn)
         
         # --- Section 3: Single File Update ---
-        layout.addWidget(QLabel("<h3>Single File Update</h3>"))
+        layout.addWidget(QLabel("<h3>📄 单文件更新</h3>"))
         file_layout = QHBoxLayout()
         
         # Input field for file path
         self.file_path_input = QLineEdit()
-        self.file_path_input.setPlaceholderText("Select file path...")
+        self.file_path_input.setPlaceholderText("选择文件路径...")
         file_layout.addWidget(self.file_path_input)
         
         # Browse button to open file dialog
-        self.browse_btn = QPushButton("Browse")
+        self.browse_btn = QPushButton("📂 浏览")
+        self.browse_btn.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 4px; padding: 6px;")
         self.browse_btn.clicked.connect(self.browse_file)
         file_layout.addWidget(self.browse_btn)
         
         # Update button to trigger single file update
-        self.update_btn = QPushButton("Update File")
+        self.update_btn = QPushButton("📤 更新文件")
+        self.update_btn.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 4px; padding: 6px;")
         self.update_btn.clicked.connect(self.update_single_file)
         file_layout.addWidget(self.update_btn)
         
         layout.addLayout(file_layout)
         
         # --- Section 4: Search Test ---
-        layout.addWidget(QLabel("<h3>Search Test</h3>"))
+        layout.addWidget(QLabel("<h3>🔍 法律条款搜索</h3>"))
         search_layout = QHBoxLayout()
         
         # Input field for search query
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Enter query...")
+        self.search_input.setPlaceholderText("输入查询内容...")
         search_layout.addWidget(self.search_input)
         
         # Search button
-        self.search_btn = QPushButton("Search")
+        self.search_btn = QPushButton("🔎 搜索")
+        self.search_btn.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 4px; padding: 6px;")
         self.search_btn.clicked.connect(self.search_law)
         search_layout.addWidget(self.search_btn)
         
@@ -84,34 +88,34 @@ class VectorManager(QWidget):
         Handler for Rebuild Button.
         Sends a request to the backend to rebuild the entire public vector database.
         """
-        reply = QMessageBox.question(self, 'Confirm Rebuild', 
-                                     "Rebuilding will delete all existing vectors and re-process all files. Are you sure?",
+        reply = QMessageBox.question(self, '确认重建', 
+                                     "重建将删除所有现有向量并重新处理所有文件。您确定吗？",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 # UI Feedback: Disable button and show loading state
                 self.rebuild_btn.setEnabled(False)
-                self.rebuild_btn.setText("Rebuilding... (Please wait)")
+                self.rebuild_btn.setText("重建中... (请稍候)")
                 self.repaint() # Force UI update
                 
                 # Call Backend API
                 response = requests.post(f"{API_URL}/rebuild")
                 
                 if response.status_code == 200:
-                    QMessageBox.information(self, "Success", f"Rebuild complete: {response.json()}")
+                    QMessageBox.information(self, "成功", f"重建完成: {response.json()}")
                 else:
-                    QMessageBox.warning(self, "Error", f"Rebuild failed: {response.text}")
+                    QMessageBox.warning(self, "错误", f"重建失败: {response.text}")
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Connection error: {e}")
+                QMessageBox.critical(self, "错误", f"连接错误: {e}")
             finally:
                 # Restore button state
                 self.rebuild_btn.setEnabled(True)
-                self.rebuild_btn.setText("Rebuild Public Vector DB (Full)")
+                self.rebuild_btn.setText("🔄 重建公开法律向量库（完整）")
 
     def browse_file(self):
         """Open file dialog to select a document."""
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select Law File", "", "Documents (*.docx *.pdf)")
+        file_name, _ = QFileDialog.getOpenFileName(self, "选择法律文件", "", "Documents (*.docx *.pdf)")
         if file_name:
             self.file_path_input.setText(file_name)
 
@@ -122,7 +126,7 @@ class VectorManager(QWidget):
         """
         file_path = self.file_path_input.text()
         if not file_path:
-            QMessageBox.warning(self, "Warning", "Please select a file first.")
+            QMessageBox.warning(self, "警告", "请先选择一个文件。")
             return
 
         try:
@@ -130,11 +134,11 @@ class VectorManager(QWidget):
             response = requests.post(f"{API_URL}/update_single", json={"file_path": file_path})
             
             if response.status_code == 200:
-                QMessageBox.information(self, "Success", f"Update complete: {response.json()}")
+                QMessageBox.information(self, "成功", f"更新完成: {response.json()}")
             else:
-                QMessageBox.warning(self, "Error", f"Update failed: {response.text}")
+                QMessageBox.warning(self, "错误", f"更新失败: {response.text}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Connection error: {e}")
+            QMessageBox.critical(self, "错误", f"连接错误: {e}")
 
     def search_law(self):
         """
@@ -160,12 +164,12 @@ class VectorManager(QWidget):
                 metas = results.get('metadatas', [[]])[0]
                 
                 if not docs:
-                    self.results_list.addItem("No results found.")
+                    self.results_list.addItem("未找到结果。")
                     return
 
                 for i, doc in enumerate(docs):
                     meta = metas[i] if i < len(metas) else {}
-                    law_name = meta.get('law_name', 'Unknown')
+                    law_name = meta.get('law_name', '未知法律')
                     
                     # Display snippet: [Law Name] Content...
                     # Truncate for display in list
@@ -184,9 +188,9 @@ class VectorManager(QWidget):
                     
                     self.results_list.addItem(item)
             else:
-                QMessageBox.warning(self, "Error", f"Search failed: {response.text}")
+                QMessageBox.warning(self, "错误", f"搜索失败: {response.text}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Connection error: {e}")
+            QMessageBox.critical(self, "错误", f"连接错误: {e}")
 
     def show_law_details(self, item):
         """
@@ -197,12 +201,12 @@ class VectorManager(QWidget):
         if not data:
             return # Should not happen for valid items
             
-        law_name = data.get("law_name", "Unknown Law")
-        content = data.get("content", "No content available.")
+        law_name = data.get("law_name", "未知法律")
+        content = data.get("content", "无可用内容。")
         
         # Create a dialog
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Details: {law_name}")
+        dialog.setWindowTitle(f"详细信息: {law_name}")
         dialog.resize(600, 400)
         
         layout = QVBoxLayout()
@@ -217,7 +221,7 @@ class VectorManager(QWidget):
         layout.addWidget(text_browser)
         
         # Close Button
-        close_btn = QPushButton("Close")
+        close_btn = QPushButton("关闭")
         close_btn.clicked.connect(dialog.accept)
         layout.addWidget(close_btn)
         

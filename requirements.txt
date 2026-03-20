@@ -1,4 +1,4 @@
-fastapi
+fastapi>=0.100.0
 uvicorn
 sqlalchemy
 chromadb
@@ -7,11 +7,14 @@ pdfplumber
 passlib[bcrypt]
 bcrypt==4.0.1
 python-multipart
-pyqt6
+PyQt6>=6.5.0
 requests
 aiohttp
-langchain
+langchain>=0.1.0
 langchain-openai
+langgraph>=0.0.10
 openai
 fastembed
 msvc-runtime
+markdown
+pyyaml

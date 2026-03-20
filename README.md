@@ -16,11 +16,7 @@
     *   **任务规划分解**: 将复杂法律问题分解为可执行的子任务
     *   **分布式执行**: 多个智能体并行处理不同子任务
     *   **结果聚合**: 综合各智能体分析结果，生成最终建议
-    *   **质量验证循环**: 内置 Verifier Agent 实现迭代改进机制
-    *   **智能模型路由**: 基于任务复杂度自动选择最佳 AI 模型
-    *   **专业报告生成**: 自动生成结构化 Markdown 法律分析报告
 *   **可视化界面**: 提供基于 PyQt6 的桌面客户端，操作便捷，包含专门的多智能体工作流界面。
-*   **配置管理**: 支持动态系统配置更新和模型参数调整。
 
 ## 📚 详细文档
 
@@ -36,15 +32,15 @@
 *   **文档解析**: python-docx, pdfplumber
 *   **ORM**: SQLAlchemy
 *   **智能体框架**: LangGraph (工作流编排), LangChain (Agent基础)
-*   **AI模型**: 支持 OpenAI API 兼容接口和 LiteLLM 代理，默认使用 GLM-4 模型，可通过智能模型路由动态选择最佳模型
-*   **工作流引擎**: 基于 LangGraph 的状态机，支持复杂多智能体协作和质量验证循环
+*   **AI模型**: 支持 OpenAI API 兼容接口，默认使用 GLM-4 模型，可通过 LLMFactory 切换其他模型
+*   **工作流引擎**: 基于 LangGraph 的状态机，支持复杂多智能体协作
 
 ## 📂 目录结构
 
 ```
 legal_ai/
 ├── api/                 # FastAPI 接口层
-│   ├── routes/          # 路由定义 (auth, doc, vector, agent, config, proxy_models)
+│   ├── routes/          # 路由定义 (auth, doc, vector, agent)
 │   └── server.py        # 服务启动入口
 ├── core/                # 核心配置
 │   ├── config.py        # 路径与环境配置 (支持GLM-4等模型)
@@ -55,7 +51,7 @@ legal_ai/
 │   ├── models.py        # SQLAlchemy 模型定义
 │   └── app.db           # SQLite 数据库文件 (自动生成)
 ├── gui/                 # PyQt6 界面层
-│   ├── widgets/         # 自定义组件 (向量库管理, 智能体工作流, 模型配置)
+│   ├── widgets/         # 自定义组件 (向量库管理, 智能体工作流)
 │   ├── login_window.py  # 登录窗口
 │   └── main_window.py   # 主窗口
 ├── service/             # 业务逻辑层
@@ -63,13 +59,13 @@ legal_ai/
 │   ├── doc_service.py   # 文档管理服务
 │   ├── law_service.py   # 法条解析与分块服务
 │   ├── vector_service.py # 向量库核心服务 (重建/更新/检索)
+│   ├── agent_service/   # 基础智能体实现
+│   │   ├── base_agent.py    # 智能体基类
+│   │   ├── search_agent.py  # 检索智能体
+│   │   └── analysis_agent.py # 分析智能体
 │   └── agents/          # 高级多智能体工作流
-│       ├── prompts/     # 专业提示词系统
-│       │   └── role_prompts.yaml  # YAML格式角色提示词
-│       └── multi_agent_orchestrator.py # LangGraph 协调器 (支持投票、规划、分布式执行、质量验证)
-├── utils/               # 工具模块
-│   ├── model_router.py  # 智能模型路由 (新增)
-│   └── report_generator.py # 专业报告生成 (新增)
+│       ├── __init__.py
+│       └── multi_agent_orchestrator.py # LangGraph 协调器 (支持投票、规划、分布式执行)
 ├── vector_db/           # 向量数据库存储目录
 │   └── chroma_db/       # ChromaDB 持久化文件
 ├── main.py              # 项目启动入口
@@ -107,11 +103,6 @@ pip install -r requirements.txt
 # LLM_PROVIDER = "openai"  # 使用OpenAI兼容接口
 # OPENAI_MODEL_NAME = "glm4:latest"  # 使用GLM-4模型
 # OPENAI_API_BASE = "http://localhost:11434/v1"  # Ollama API地址
-
-# 或使用 LiteLLM 代理 (推荐)
-# LLM_PROVIDER = "litellm"
-# LITELLM_API_BASE = "http://localhost:4000"
-# LITELLM_MODEL_NAME = "gpt-4o"
 ```
 
 ### 3. 准备数据
@@ -142,7 +133,7 @@ python main.py
     *   进入 "Agent Workflow" 标签页。
     *   输入法律问题或文档文件路径（支持 `.docx` 和 `.pdf` 格式）。
     *   点击 "Test Agent Flow" 启动高级多智能体分析流程。
-    *   系统将自动执行：意图解析 → 多角色投票 → 任务规划 → 分布式执行 → 结果聚合 → 质量验证 → 报告生成。
+    *   系统将自动执行：意图解析 → 多角色投票 → 任务规划 → 分布式执行 → 结果聚合。
 
 ## 📝 开发文档
 
@@ -161,15 +152,11 @@ python main.py
     ↓
 [Node Voter Node] - 计划评审与优化
     ↓
-[Distributed Executor] - 并行执行子任务 (智能模型路由动态选择最佳模型)
+[Distributed Executor] - 并行执行子任务
     ↓
 [Aggregator Node] - 结果聚合与综合
     ↓
-[Verifier Agent] - 质量验证与迭代改进 (新增)
-    ↓
-[Report Generator] - 专业报告生成 (新增)
-    ↓
-最终法律建议报告
+最终法律建议
 ```
 
 #### 智能体节点职责：
@@ -180,26 +167,25 @@ python main.py
     - 支持直接输入文件路径，自动解析 `.docx` 和 `.pdf` 文档内容
     - 生成结构化解析信息供后续节点使用
 
-2.  **Goal Voter Node**:
+2.  **Goal Voter Node** (新增):
     - **三方投票机制**: 模拟律师事务所的多角色协作
       - **资深合伙人**: 从战略和商业角度分析
       - **初级律师**: 从法律条文和细节角度分析  
       - **合规专家**: 从风险控制和合规角度分析
     - 生成共识目标，确定分析优先级和范围
 
-3.  **Planner Node**:
+3.  **Planner Node** (新增):
     - 将共识目标分解为 2-4 个可执行的子任务
     - 为每个子任务分配最合适的智能体角色
     - 生成具体的搜索关键词和执行指令
 
-4.  **Node Voter Node**:
+4.  **Node Voter Node** (新增):
     - 评审执行计划的合理性和完整性
     - 优化任务分配和资源调度
     - 确保各子任务间的协调性
 
-5.  **Distributed Executor** (增强):
+5.  **Distributed Executor**:
     - 并行执行各个子任务
-    - **智能模型路由**: 基于任务复杂度自动选择最佳 AI 模型
     - 调用向量数据库进行法律检索
     - 执行风险分析和合规性检查
 
@@ -208,40 +194,12 @@ python main.py
     - 生成结构化法律建议报告
     - 评估整体风险等级和合规状态
 
-7.  **Verifier Agent** (新增):
-    - 质量保证，评估分析结果的准确性和完整性
-    - 四维质量评估：法律准确性、风险覆盖度、引用可靠性、逻辑完整性
-    - 验证不通过时触发迭代改进循环，最多 3 次迭代
-
-8.  **Report Generator** (新增):
-    - 自动生成结构化 Markdown 法律分析报告
-    - 包含请求详情、最终分析、执行详情、质量评估
-    - 支持可折叠内容查看详细子任务结果
-
-### 智能模型路由系统 (新增)
-
-系统根据以下因素动态选择最佳 AI 模型：
-
-```python
-# 路由决策逻辑
-if "ollama" in base_model or "local" in base_model:
-    if loop_count >= 2 or (verifier_score < 6) or priority == "High":
-        # 升级到强大模型
-        target_model = "gpt-4o"
-```
-
-**路由因素**:
-1. **迭代次数**: 超过 2 次迭代自动升级模型
-2. **验证分数**: 分数低于 6 分自动升级模型
-3. **任务优先级**: 高优先级任务使用强大模型
-4. **模型历史**: 记录每个任务使用的模型
-
 ### 技术实现特点
 
-1.  **状态管理**: 使用 `AgentState` TypedDict 管理整个工作流状态，包含解析信息、投票记录、执行计划、子结果、验证结果、模型历史等
+1.  **状态管理**: 使用 `AgentState` TypedDict 管理整个工作流状态，包含解析信息、投票记录、执行计划、子结果等
 2.  **错误处理**: 每个节点都有完善的异常处理机制，确保工作流稳定性
 3.  **可扩展性**: 模块化设计，方便添加新的智能体节点或修改现有逻辑
-4.  **配置灵活**: 支持多种 AI 模型和配置方式，可通过环境变量、配置文件、数据库或 GUI 界面轻松切换
+4.  **配置灵活**: 支持多种 AI 模型，可通过环境变量轻松切换
 
 ### 向量库更新机制
 
@@ -266,7 +224,6 @@ if "ollama" in base_model or "local" in base_model:
 *   `doc_version`: 文书版本历史
 *   `public_law_files`: 公共法律文件索引状态
 *   `vector_log`: 向量库操作日志
-*   `system_config`: 系统配置表 (新增)
 
 ## 🔌 API 接口
 
@@ -291,7 +248,7 @@ if "ollama" in base_model or "local" in base_model:
 **响应**:
 ```json
 {
-  "final_answer": "# Legal Analysis Report\n\n## 1. Request Details...",
+  "final_answer": "根据《劳动合同法》第四十六条、第四十七条规定...",
   "parsed_info": {
     "intent": "法律咨询",
     "keywords": ["劳动合同", "解除", "经济补偿金", "计算标准"],
@@ -309,6 +266,12 @@ if "ollama" in base_model or "local" in base_model:
       "role": "Researcher",
       "description": "检索劳动合同法相关条款",
       "search_keywords": ["劳动合同法", "解除", "经济补偿"]
+    },
+    {
+      "step_name": "计算标准分析",
+      "role": "Analyst", 
+      "description": "分析补偿金计算方法和标准",
+      "search_keywords": ["补偿金计算", "工资标准", "工作年限"]
     }
   ],
   "retrieved_docs": [
@@ -323,37 +286,7 @@ if "ollama" in base_model or "local" in base_model:
     "Role: Senior Partner\nAnalysis: 从商业角度...",
     "Role: Junior Associate\nAnalysis: 从法律细节角度...",
     "Role: Compliance Specialist\nAnalysis: 从合规风险角度..."
-  ],
-  "verifier_result": {
-    "score": 8,
-    "passed": true,
-    "issues": [],
-    "suggestions": ["可补充具体计算示例"]
-  },
-  "loop_count": 1,
-  "execution_log": [
-    {"node": "parser", "summary": "Parsing user intent"},
-    {"node": "goal_voter", "summary": "Three-role voting completed"}
-  ],
-  "model_history": ["gpt-4o"]
-}
-```
-
-### 配置管理接口 (新增)
-
-**获取所有配置**
-```
-GET /api/config/
-```
-
-**更新配置**
-```
-POST /api/config/
-{
-  "configs": {
-    "DEFAULT_MODEL_NAME": "gpt-4o",
-    "MAX_ITERATIONS": "3"
-  }
+  ]
 }
 ```
 
@@ -393,15 +326,37 @@ POST /api/config/
 
 ```python
 # LLM 提供商配置
-LLM_PROVIDER = "openai"  # 或 "local", "litellm"
+LLM_PROVIDER = "openai"  # 或 "local"
 OPENAI_API_KEY = "ollama"  # 使用Ollama时设为"ollama"
 OPENAI_MODEL_NAME = "glm4:latest"  # 模型名称
 OPENAI_API_BASE = "http://localhost:11434/v1"  # API地址
-
-# LiteLLM 代理配置 (推荐)
-LITELLM_API_BASE = "http://localhost:4000"
-LITELLM_MODEL_NAME = "gpt-4o"
 ```
 
 ### 工作流配置
-可通过修改
+可通过修改 `service/agents/multi_agent_orchestrator.py` 调整：
+- 投票角色设置
+- 任务规划逻辑
+- 结果聚合策略
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request 来改进本项目。贡献前请阅读：
+1. 代码风格遵循 PEP 8
+2. 新增功能需包含单元测试
+3. 更新文档以反映代码变更
+
+## 📄 许可证
+
+MIT License
+
+## 📞 支持
+
+如有问题或建议，请：
+1. 查看项目文档和 FAQ
+2. 提交 GitHub Issue
+3. 联系项目维护者
+
+---
+
+*最后更新: 2026-03-20*  
+*版本: 2.0.0 (高级多智能体版本)*

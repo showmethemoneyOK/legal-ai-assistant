@@ -65,13 +65,13 @@ class LLMFactory:
         model_config = cls._get_model_config(target_model_name)
         
         if model_config:
-            api_key = model_config.api_key or os.getenv("LLM_API_KEY", "")
+            api_key = model_config.api_key or "sk-dummy"
             base_url = model_config.api_base
             actual_model = model_config.target_model
         else:
             # Fallback to old behavior if model not found in DB
             print(f"Warning: Model {target_model_name} not found in DB. Falling back to default proxy settings.")
-            api_key = db_configs.get("LLM_MASTER_KEY") or os.getenv("LLM_MASTER_KEY", "")
+            api_key = db_configs.get("LLM_MASTER_KEY") or LLM_MASTER_KEY
             base_url = db_configs.get("LLM_PROXY_BASE") or LLM_PROXY_BASE
             actual_model = target_model_name
 

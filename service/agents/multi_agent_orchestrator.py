@@ -30,7 +30,7 @@ class ExecutionPlan(BaseModel):
 # --- Helper ---
 def load_role_prompt(role_name: str) -> str:
     """Load system prompt from yaml file."""
-    prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "role_prompts.yaml")
+    prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "role_prompts_zh.yaml")
     try:
         with open(prompt_path, 'r', encoding='utf-8') as f:
             prompts = yaml.safe_load(f)
@@ -40,7 +40,7 @@ def load_role_prompt(role_name: str) -> str:
         print(f"Warning: Failed to load prompt for {role_name} from {prompt_path}: {e}")
     
     # Fallback default
-    return "You are a helpful legal assistant. Please complete the following task:\n{context}\n{question}"
+    return "你是一个有用的法律助手。请完成以下任务：\n{context}\n{question}\n注意：你的所有输出必须完全使用中文，禁止任何英文内容！"
 
 # Define State
 class AgentState(TypedDict):
@@ -114,7 +114,7 @@ def parser_node(state: AgentState):
     return {"parsed_info": parsed_info, "model_history": state.get("model_history", set())}
 
 # --- 2. Goal Voter Node ---
-def goal_voter_node(state: AgentState):
+async def goal_voter_node(state: AgentState):
     print("--- Goal Voter Node ---")
     _log_execution(state, "goal_voter", "Voting on task goals")
     question = state["question"]
@@ -122,17 +122,18 @@ def goal_voter_node(state: AgentState):
     llm = get_llm_provider(state)
     
     roles = ["SeniorPartner", "JuniorAssociate", "ComplianceSpecialist"]
-    votes = []
     
-    for role in roles:
+    async def fetch_vote(role):
         prompt_str = load_role_prompt(role)
         prompt = ChatPromptTemplate.from_template(prompt_str)
         chain = prompt | llm
         try:
-            res = chain.invoke({"question": question, "parsed_info": str(parsed_info)})
-            votes.append(f"Role: {role}\nAnalysis: {res.content}")
+            res = await chain.ainvoke({"question": question, "parsed_info": str(parsed_info)})
+            return f"Role: {role}\nAnalysis: {res.content}"
         except Exception as e:
-            votes.append(f"Role: {role}\nError: {str(e)}")
+            return f"Role: {role}\nError: {str(e)}"
+            
+    votes = await asyncio.gather(*(fetch_vote(role) for role in roles))
             
     agg_parser = JsonOutputParser()
     agg_prompt = ChatPromptTemplate.from_template(
@@ -145,7 +146,7 @@ def goal_voter_node(state: AgentState):
     )
     agg_chain = agg_prompt | llm | agg_parser
     try:
-        consensus = agg_chain.invoke({"votes": "\n---\n".join(votes), "format_instructions": agg_parser.get_format_instructions()})
+        consensus = await agg_chain.ainvoke({"votes": "\n---\n".join(votes), "format_instructions": agg_parser.get_format_instructions()})
     except Exception as e:
         print(f"Goal Aggregation Error: {e}")
         consensus = {"consensus_intent": parsed_info.get("intent", "general") if parsed_info else "general", "priority": "Medium", "scope": "General Analysis"}
@@ -203,17 +204,16 @@ def planner_node(state: AgentState):
     return {"node_plan": plan, "model_history": state.get("model_history", set())}
 
 # --- 4. Node Voter Node (Upgraded) ---
-def node_voter_node(state: AgentState):
+async def node_voter_node(state: AgentState):
     print("--- Node Voter Node ---")
     _log_execution(state, "node_voter", "Reviewing execution plan")
     plan = state["node_plan"]
     llm = get_llm_provider(state)
     
     roles = ["SeniorPartner", "JuniorAssociate", "ComplianceSpecialist"]
-    votes = []
-    
     parser = JsonOutputParser()
-    for role in roles:
+    
+    async def fetch_vote(role):
         prompt = ChatPromptTemplate.from_template(
             """You are a {role}. Review the proposed execution plan.
             Plan: {plan}
@@ -222,13 +222,15 @@ def node_voter_node(state: AgentState):
         )
         chain = prompt | llm | parser
         try:
-            res = chain.invoke({"role": role, "plan": str(plan), "format_instructions": parser.get_format_instructions()})
+            res = await chain.ainvoke({"role": role, "plan": str(plan), "format_instructions": parser.get_format_instructions()})
             if not res:
-                res = {"decision": "approve", "feedback": "No feedback from LLM"}
-            votes.append(res)
+                return {"decision": "approve", "feedback": "No feedback from LLM"}
+            return res
         except Exception as e:
             print(f"Node Voter Error for {role}: {e}")
-            votes.append({"decision": "approve", "feedback": ""})
+            return {"decision": "approve", "feedback": ""}
+
+    votes = await asyncio.gather(*(fetch_vote(role) for role in roles))
             
     # Simple aggregation: if any suggest changes, we might tweak, but for simplicity we just proceed with the plan and log feedback
     rejections = [v for v in votes if v.get("decision") == "suggest_changes"]
