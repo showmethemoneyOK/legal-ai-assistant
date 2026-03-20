@@ -310,3 +310,11 @@ user_data/
 
 # Keep empty directories
 !.gitkeep
+
+# Non-code files (development notes, scripts, backups)
+CODING_AI_PROMPTS.txt
+GITHUB_SETUP.md
+README_backup_*.md
+readme_*.md
+*.bat
+新建文本文档.txt
